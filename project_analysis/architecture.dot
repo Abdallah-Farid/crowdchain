@@ -1,0 +1,124 @@
+digraph CrowdChain {
+    // Graph settings
+    rankdir=TB;
+    splines=true;
+    nodesep=0.8;
+    ranksep=1.0;
+    fontname="Arial";
+    fontsize=14;
+    label="CrowdChain System Architecture";
+    labelloc="t";
+    
+    // Node styles
+    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=12, margin=0.2];
+    edge [fontname="Arial", fontsize=10];
+    
+    // User
+    user [label="User", shape=ellipse, fillcolor="#F2F3F4", style=filled];
+    
+    // Frontend Layer
+    subgraph cluster_frontend {
+        label="Frontend Layer";
+        style=filled;
+        color=lightgrey;
+        fillcolor="#EBF5FB";
+        
+        frontend [label="React Frontend\n(Tailwind CSS)", fillcolor="#D6EAF8"];
+        wallet [label="MetaMask Wallet\nIntegration", fillcolor="#D6EAF8"];
+    }
+    
+    // Blockchain Layer
+    subgraph cluster_blockchain {
+        label="Blockchain Layer";
+        style=filled;
+        color=lightgrey;
+        fillcolor="#EBF5FB";
+        
+        smart_contracts [label="Smart Contracts (Solidity)", fillcolor="#D5F5E3"];
+        
+        subgraph cluster_contracts {
+            label="Contract Components";
+            style=filled;
+            color=lightgrey;
+            fillcolor="#E8F8F5";
+            
+            project_contract [label="Project Contract", fillcolor="#D5F5E3"];
+            milestone_manager [label="Milestone Manager", fillcolor="#D5F5E3"];
+            fund_manager [label="Fund Manager\n(Escrow)", fillcolor="#D5F5E3"];
+            voting_system [label="Voting System", fillcolor="#D5F5E3"];
+        }
+        
+        blockchain [label="Ethereum/Polygon\nBlockchain", fillcolor="#D5F5E3"];
+    }
+    
+    // Storage Layer
+    subgraph cluster_storage {
+        label="Storage Layer";
+        style=filled;
+        color=lightgrey;
+        fillcolor="#EBF5FB";
+        
+        supabase [label="Supabase Database", fillcolor="#FADBD8"];
+        ipfs [label="IPFS\n(Decentralized Storage)", fillcolor="#FCF3CF"];
+    }
+    
+    // External Services
+    subgraph cluster_services {
+        label="External Services";
+        style=filled;
+        color=lightgrey;
+        fillcolor="#EBF5FB";
+        
+        notification [label="Notification Service", fillcolor="#E8DAEF"];
+        oracle [label="Oracle Service\n(External Data)", fillcolor="#E8DAEF"];
+    }
+    
+    // Connections
+    // User interactions
+    user -> frontend [label="Interacts with"];
+    user -> wallet [label="Connects wallet"];
+    
+    // Frontend connections
+    frontend -> wallet [label="Requests\nsignatures"];
+    wallet -> frontend [label="Provides\naddress/auth"];
+    frontend -> smart_contracts [label="Calls contract\nfunctions"];
+    frontend -> supabase [label="Reads/writes\nnon-blockchain data"];
+    frontend -> ipfs [label="Stores/retrieves\nproject media"];
+    
+    // Wallet connections
+    wallet -> blockchain [label="Signs\ntransactions"];
+    
+    // Smart contract connections
+    smart_contracts -> blockchain [label="Deployed on"];
+    project_contract -> milestone_manager [label="Defines\nmilestones"];
+    milestone_manager -> fund_manager [label="Triggers\ndisbursement"];
+    fund_manager -> blockchain [label="Executes\ntransactions"];
+    milestone_manager -> voting_system [label="Initiates\napproval votes"];
+    
+    // Blockchain connections
+    blockchain -> smart_contracts [label="Executes"];
+    
+    // Database connections
+    smart_contracts -> supabase [label="Updates\noff-chain data"];
+    supabase -> frontend [label="Provides\nproject data"];
+    
+    // IPFS connections
+    ipfs -> frontend [label="Delivers\nstored content"];
+    
+    // Notification connections
+    supabase -> notification [label="Triggers"];
+    notification -> user [label="Alerts"];
+    
+    // Oracle connections
+    oracle -> milestone_manager [label="Provides\nexternal verification"];
+    
+    // Milestone-based disbursement flow
+    edge [color="#FF5733", penwidth=2.0];
+    frontend -> project_contract [label="Create project\nwith milestones"];
+    user -> fund_manager [label="Contribute funds"];
+    fund_manager -> milestone_manager [label="Hold in escrow"];
+    milestone_manager -> voting_system [label="Request\nmilestone approval"];
+    voting_system -> milestone_manager [label="Approve milestone"];
+    milestone_manager -> fund_manager [label="Release funds\nfor milestone"];
+    fund_manager -> user [label="Disburse to\nproject creator"];
+}
