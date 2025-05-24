@@ -1,14 +1,19 @@
 import { supabase } from './supabase'
 import { setGlobalState, getGlobalState } from '../store'
+import { getCurrentUser } from './supabase'
 
 // Function to sync blockchain project data with Supabase
 export const syncProjectWithSupabase = async (project) => {
   try {
-    // Check if project already exists in Supabase
+    // Get current user if available
+    const { data: userData } = await getCurrentUser()
+    const user = userData?.user
+
+    // Check if project already exists in Supabase by chain_id
     const { data: existingProject, error: fetchError } = await supabase
       .from('projects')
       .select('*')
-      .eq('blockchain_id', project.id)
+      .eq('chain_id', project.id)
       .single()
 
     if (fetchError && fetchError.code !== 'PGRST116') {
@@ -17,7 +22,7 @@ export const syncProjectWithSupabase = async (project) => {
     }
 
     const projectData = {
-      blockchain_id: project.id,
+      chain_id: project.id, // Store blockchain ID as chain_id instead of using it as a foreign key
       owner: project.owner,
       title: project.title,
       description: project.description,
@@ -29,7 +34,8 @@ export const syncProjectWithSupabase = async (project) => {
       status: project.status,
       has_milestones: project.hasMilestones,
       milestone_count: project.milestoneCount,
-      milestones_completed: project.milestonesCompleted
+      milestones_completed: project.milestonesCompleted,
+      user_id: user?.id // Link to the current user if available
     }
 
     let result
@@ -38,7 +44,7 @@ export const syncProjectWithSupabase = async (project) => {
       const { data, error } = await supabase
         .from('projects')
         .update(projectData)
-        .eq('blockchain_id', project.id)
+        .eq('id', existingProject.id) // Use database ID instead of blockchain_id
         .select()
 
       if (error) {
@@ -68,14 +74,28 @@ export const syncProjectWithSupabase = async (project) => {
 }
 
 // Function to sync blockchain milestone data with Supabase
-export const syncMilestoneWithSupabase = async (projectId, milestone) => {
+export const syncMilestoneWithSupabase = async (chainId, milestone) => {
   try {
+    // First, get the project by chain_id to get its database ID
+    const { data: projectData, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('chain_id', chainId)
+      .single()
+
+    if (projectError) {
+      console.error('Error fetching project for milestone:', projectError.message)
+      return { success: false, message: 'Project not found' }
+    }
+
+    const projectId = projectData.id
+
     // Check if milestone already exists in Supabase
     const { data: existingMilestone, error: fetchError } = await supabase
       .from('milestones')
       .select('*')
       .eq('blockchain_id', milestone.id)
-      .eq('project_blockchain_id', projectId)
+      .eq('project_id', projectId)
       .single()
 
     if (fetchError && fetchError.code !== 'PGRST116') {
@@ -85,7 +105,7 @@ export const syncMilestoneWithSupabase = async (projectId, milestone) => {
 
     const milestoneData = {
       blockchain_id: milestone.id,
-      project_blockchain_id: projectId,
+      project_id: projectId, // Use database project ID instead of blockchain_id
       title: milestone.title,
       description: milestone.description,
       amount: milestone.amount,
@@ -102,8 +122,7 @@ export const syncMilestoneWithSupabase = async (projectId, milestone) => {
       const { data, error } = await supabase
         .from('milestones')
         .update(milestoneData)
-        .eq('blockchain_id', milestone.id)
-        .eq('project_blockchain_id', projectId)
+        .eq('id', existingMilestone.id) // Use database ID
         .select()
 
       if (error) {
@@ -133,14 +152,28 @@ export const syncMilestoneWithSupabase = async (projectId, milestone) => {
 }
 
 // Function to sync blockchain backer data with Supabase
-export const syncBackerWithSupabase = async (projectId, backer) => {
+export const syncBackerWithSupabase = async (chainId, backer) => {
   try {
+    // First, get the project by chain_id to get its database ID
+    const { data: projectData, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('chain_id', chainId)
+      .single()
+
+    if (projectError) {
+      console.error('Error fetching project for backer:', projectError.message)
+      return { success: false, message: 'Project not found' }
+    }
+
+    const projectId = projectData.id
+
     // Check if backer already exists in Supabase
     const { data: existingBacker, error: fetchError } = await supabase
       .from('backers')
       .select('*')
-      .eq('owner', backer.owner)
-      .eq('project_blockchain_id', projectId)
+      .eq('owner', backer.owner.toLowerCase())
+      .eq('project_id', projectId)
       .single()
 
     if (fetchError && fetchError.code !== 'PGRST116') {
@@ -149,11 +182,11 @@ export const syncBackerWithSupabase = async (projectId, backer) => {
     }
 
     const backerData = {
-      owner: backer.owner,
-      project_blockchain_id: projectId,
-      refunded: backer.refunded,
+      owner: backer.owner.toLowerCase(),
+      project_id: projectId, // Use database project ID instead of blockchain_id
+      contribution: backer.contribution,
       timestamp: backer.timestamp,
-      contribution: backer.contribution
+      refunded: backer.refunded
     }
 
     let result
@@ -162,8 +195,7 @@ export const syncBackerWithSupabase = async (projectId, backer) => {
       const { data, error } = await supabase
         .from('backers')
         .update(backerData)
-        .eq('owner', backer.owner)
-        .eq('project_blockchain_id', projectId)
+        .eq('id', existingBacker.id) // Use database ID
         .select()
 
       if (error) {
@@ -193,12 +225,51 @@ export const syncBackerWithSupabase = async (projectId, backer) => {
 }
 
 // Function to get projects from Supabase
-export const getProjectsFromSupabase = async () => {
+export const getProjectsFromSupabase = async (filters = {}) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false })
+      .select(`
+        *,
+        creator:user_id(*),
+        approver:admin_approved_by(id, email, first_name, last_name),
+        featured_by_admin:featured_by(id, email, first_name, last_name)
+      `)
+
+    // Apply filters if provided
+    if (filters.userId) {
+      query = query.eq('user_id', filters.userId)
+    }
+    if (filters.status) {
+      query = query.eq('status', filters.status)
+    }
+    if (filters.adminApproved !== undefined) {
+      query = query.eq('admin_approved', filters.adminApproved)
+    }
+    if (filters.featured !== undefined) {
+      query = query.eq('featured', filters.featured)
+    }
+    if (filters.hasMilestones !== undefined) {
+      query = query.eq('has_milestones', filters.hasMilestones)
+    }
+    if (filters.search) {
+      query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`)
+    }
+
+    // Order by created_at by default, but allow custom ordering
+    const orderField = filters.orderBy || 'created_at'
+    const orderDirection = filters.ascending ? { ascending: true } : { ascending: false }
+    query = query.order(orderField, orderDirection)
+
+    // Apply pagination if provided
+    if (filters.limit) {
+      query = query.limit(filters.limit)
+    }
+    if (filters.offset) {
+      query = query.range(filters.offset, filters.offset + (filters.limit || 10) - 1)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching projects:', error.message)
@@ -213,13 +284,27 @@ export const getProjectsFromSupabase = async () => {
 }
 
 // Function to get a single project from Supabase
-export const getProjectFromSupabase = async (blockchainId) => {
+export const getProjectFromSupabase = async (id, useChainId = false) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('projects')
-      .select('*')
-      .eq('blockchain_id', blockchainId)
-      .single()
+      .select(`
+        *,
+        creator:user_id(*),
+        approver:admin_approved_by(id, email, first_name, last_name),
+        featured_by_admin:featured_by(id, email, first_name, last_name),
+        milestones:milestones(*),
+        backers:backers(*)
+      `)
+
+    // Use either database ID or chain_id based on the flag
+    if (useChainId) {
+      query = query.eq('chain_id', id)
+    } else {
+      query = query.eq('id', id)
+    }
+
+    const { data, error } = await query.single()
 
     if (error) {
       console.error('Error fetching project:', error.message)
@@ -234,13 +319,45 @@ export const getProjectFromSupabase = async (blockchainId) => {
 }
 
 // Function to get milestones for a project from Supabase
-export const getMilestonesFromSupabase = async (projectId) => {
+export const getMilestonesFromSupabase = async (projectId, useChainId = false) => {
   try {
-    const { data, error } = await supabase
-      .from('milestones')
-      .select('*')
-      .eq('project_blockchain_id', projectId)
-      .order('created_at', { ascending: true })
+    let query;
+    
+    if (useChainId) {
+      // First get the project's database ID using chain_id
+      const { data: project, error: projectError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('chain_id', projectId)
+        .single()
+
+      if (projectError) {
+        console.error('Error fetching project for milestones:', projectError.message)
+        return { success: false, message: 'Project not found' }
+      }
+      
+      query = supabase
+        .from('milestones')
+        .select(`
+          *,
+          reviewer:admin_reviewed_by(id, email, first_name, last_name)
+        `)
+        .eq('project_id', project.id)
+    } else {
+      // Use the provided project ID directly (database ID)
+      query = supabase
+        .from('milestones')
+        .select(`
+          *,
+          reviewer:admin_reviewed_by(id, email, first_name, last_name)
+        `)
+        .eq('project_id', projectId)
+    }
+    
+    // Order by created_at
+    query = query.order('created_at', { ascending: true })
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching milestones:', error.message)
@@ -255,13 +372,45 @@ export const getMilestonesFromSupabase = async (projectId) => {
 }
 
 // Function to get backers for a project from Supabase
-export const getBackersFromSupabase = async (projectId) => {
+export const getBackersFromSupabase = async (projectId, useChainId = false) => {
   try {
-    const { data, error } = await supabase
-      .from('backers')
-      .select('*')
-      .eq('project_blockchain_id', projectId)
-      .order('timestamp', { ascending: false })
+    let query;
+    
+    if (useChainId) {
+      // First get the project's database ID using chain_id
+      const { data: project, error: projectError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('chain_id', projectId)
+        .single()
+
+      if (projectError) {
+        console.error('Error fetching project for backers:', projectError.message)
+        return { success: false, message: 'Project not found' }
+      }
+      
+      query = supabase
+        .from('backers')
+        .select(`
+          *,
+          flagger:flagged_by(id, email, first_name, last_name)
+        `)
+        .eq('project_id', project.id)
+    } else {
+      // Use the provided project ID directly (database ID)
+      query = supabase
+        .from('backers')
+        .select(`
+          *,
+          flagger:flagged_by(id, email, first_name, last_name)
+        `)
+        .eq('project_id', projectId)
+    }
+    
+    // Order by timestamp
+    query = query.order('timestamp', { ascending: false })
+
+    const { data, error } = await query
 
     if (error) {
       console.error('Error fetching backers:', error.message)
