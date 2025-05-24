@@ -128,17 +128,18 @@ const createProject = async ({
       const projects = await contract.getProjects()
       const projectId = projects[projects.length - 1].id.toNumber()
       
-      // Create each milestone
-      for (const milestone of milestones) {
-        const milestoneAmount = ethers.utils.parseEther(milestone.amount)
-        tx = await contract.createMilestone(
-          projectId,
-          milestone.title,
-          milestone.description,
-          milestoneAmount
-        )
-        await tx.wait()
-      }
+      // Create all milestones in a single transaction
+      const titles = milestones.map(m => m.title)
+      const descriptions = milestones.map(m => m.description)
+      const amounts = milestones.map(m => ethers.utils.parseEther(m.amount))
+      
+      tx = await contract.createMultipleMilestones(
+        projectId,
+        titles,
+        descriptions,
+        amounts
+      )
+      await tx.wait()
     }
     
     await loadProjects()

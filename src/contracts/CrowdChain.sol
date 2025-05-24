@@ -461,6 +461,66 @@ contract CrowdChain is ReentrancyGuard {
         
         return true;
     }
+    
+    // Function to create multiple milestones in a single transaction
+    function createMultipleMilestones(
+        uint projectId,
+        string[] memory titles,
+        string[] memory descriptions,
+        uint[] memory amounts
+    ) public projectOwnerOnly(projectId) validProject(projectId) returns (bool) {
+        require(projects[projectId].hasMilestones, "Project does not support milestones");
+        require(titles.length == descriptions.length && descriptions.length == amounts.length, "Input arrays must have the same length");
+        require(titles.length > 0, "Must provide at least one milestone");
+        
+        // Calculate total amount for all milestones
+        uint totalNewAmount = 0;
+        for(uint i = 0; i < amounts.length; i++) {
+            require(amounts[i] > 0 ether, "Amount must be greater than zero");
+            require(bytes(titles[i]).length > 0, "Title cannot be empty");
+            require(bytes(descriptions[i]).length > 0, "Description cannot be empty");
+            totalNewAmount += amounts[i];
+        }
+        
+        // Check existing milestone amounts
+        uint existingAmount = 0;
+        for(uint i = 0; i < milestonesOf[projectId].length; i++) {
+            existingAmount += milestonesOf[projectId][i].amount;
+        }
+        
+        // Ensure total doesn't exceed project cost
+        require(
+            existingAmount + totalNewAmount <= projects[projectId].cost,
+            "Total milestone amounts cannot exceed project cost"
+        );
+        
+        // Create all milestones
+        for(uint i = 0; i < titles.length; i++) {
+            uint milestoneId = projects[projectId].milestoneCount;
+            
+            milestoneStruct memory milestone;
+            milestone.id = milestoneId;
+            milestone.title = titles[i];
+            milestone.description = descriptions[i];
+            milestone.amount = amounts[i];
+            milestone.createdAt = block.timestamp;
+            milestone.status = milestoneStatusEnum.PENDING;
+            
+            milestonesOf[projectId].push(milestone);
+            projects[projectId].milestoneCount += 1;
+            stats.totalMilestones += 1;
+            
+            emit MilestoneAction(
+                projectId,
+                milestoneId,
+                "MILESTONE CREATED",
+                msg.sender,
+                block.timestamp
+            );
+        }
+        
+        return true;
+    }
 
     function getProject(uint id) public view returns (projectStruct memory) {
         require(projectExist[id], "Project not found");
